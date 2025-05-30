@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:liveness/camera_screen.dart';
 import 'package:liveness/home_screen.dart';
 import 'package:liveness/liveness_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   runApp(const MyApp());
 }
 
@@ -21,6 +25,7 @@ class MyApp extends StatelessWidget {
       routes: {
         '/': (context) => const HomeScreen(),
         '/liveness': (context) => const LivenessScreen(),
+        '/camera': (context) => const CameraScreen(),
       },
     );
   }
