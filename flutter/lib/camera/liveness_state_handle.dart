@@ -65,9 +65,7 @@ class FrontFaceStateHandler implements LivenessStateHandler {
       return Invalid(InvalidReason.faceNotCenter);
     }
 
-    final validSeconds =
-        (validFrames / framesPerSecond.clamp(1, double.infinity)).floor();
-    if (LivenessUtils.isFrontFace(face) && validSeconds >= 2) {
+    if (LivenessUtils.isFrontFace(face) && validFrames >= 1) {
       return const Completed();
     }
     return const Valid();
@@ -104,10 +102,8 @@ class SmileStateHandler implements LivenessStateHandler {
       return Invalid(InvalidReason.faceNotCenter);
     }
 
-    final validSeconds =
-        (validFrames / framesPerSecond.clamp(1, double.infinity)).floor();
     final smilingProbability = face.smilingProbability ?? 0.0;
-    if (smilingProbability > 0.3 && validFrames > validSeconds) {
+    if (smilingProbability > 0.3 && validFrames >= 1) {
       return const Completed();
     }
     return const Valid();
@@ -131,7 +127,7 @@ class SideFaceStateHandler implements LivenessStateHandler {
     int validFrames,
     int framesPerSecond,
   ) {
-    if (LivenessUtils.isSideFace(face) && validFrames > 2) {
+    if (LivenessUtils.isSideFace(face) && validFrames >= 1) {
       return const Completed();
     }
     return const Valid();
@@ -164,9 +160,7 @@ class MouthOpenStateHandler implements LivenessStateHandler {
       return Invalid(InvalidReason.faceTooFar);
     }
 
-    final validSeconds =
-        (validFrames / framesPerSecond.clamp(1, double.infinity)).floor();
-    if (LivenessUtils.isMouthOpened(face) && validSeconds > 1) {
+    if (LivenessUtils.isMouthOpened(face) && validFrames >= 1) {
       return const Completed();
     }
     return const Valid();

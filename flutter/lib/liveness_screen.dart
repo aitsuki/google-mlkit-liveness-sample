@@ -1,3 +1,5 @@
+import 'dart:developer';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
@@ -41,6 +43,9 @@ class _LivenessScreenState extends State<LivenessScreen>
   ];
 
   late LivenessStateHandler _currentStateHandler;
+  int _fps = 0;
+  int _frameCount = 0;
+  DateTime? _lastFrameTimestamp;
   int _emptyFaceFrames = 0;
   int _validStateFrames = 0;
   final _livenessPictures = <XFile>[];
@@ -69,9 +74,28 @@ class _LivenessScreenState extends State<LivenessScreen>
     Navigator.pop(context, result);
   }
 
-  void _handleImageStream(InputImage image) async {
+  void _handleImageStream(CameraImage cameraImage) async {
     if (!_canProcess || _isBusy) return;
     _isBusy = true;
+
+    // --- FPS 计算开始 ---
+    final now = DateTime.now();
+    _frameCount++;
+    if (_lastFrameTimestamp != null &&
+        now.difference(_lastFrameTimestamp!).inSeconds >= 1) {
+      _fps = _frameCount;
+      _frameCount = 0;
+      _lastFrameTimestamp = now;
+      log("FPS: $_fps");
+    }
+    // --- FPS 计算结束 ---
+
+    final image = _inputImageFromCameraImage(cameraImage);
+    if (image == null) {
+      _isBusy = false;
+      return;
+    }
+
     if (_imageHeight == 0 || _imageHeight == 0) {
       final imageSize = image.metadata.size;
       final rotatiton = image.metadata.rotation;
@@ -106,7 +130,7 @@ class _LivenessScreenState extends State<LivenessScreen>
       _imageWidth,
       _imageHeight,
       _validStateFrames,
-      _camera.currentState?.fps ?? 0,
+      _fps.clamp(0, 60),
     );
 
     if (handleResult is Valid) {
@@ -151,6 +175,46 @@ class _LivenessScreenState extends State<LivenessScreen>
     _currentStateHandler = _livenessStateHandlers.first;
   }
 
+  InputImage? _inputImageFromCameraImage(CameraImage image) {
+    // get image rotation
+    // it is used in android to convert the InputImage from Dart to Java: https://github.com/flutter-ml/google_ml_kit_flutter/blob/master/packages/google_mlkit_commons/android/src/main/java/com/google_mlkit_commons/InputImageConverter.java
+    // `rotation` is not used in iOS to convert the InputImage from Dart to Obj-C: https://github.com/flutter-ml/google_ml_kit_flutter/blob/master/packages/google_mlkit_commons/ios/Classes/MLKVisionImage%2BFlutterPlugin.m
+    // in both platforms `rotation` and `camera.lensDirection` can be used to compensate `x` and `y` coordinates on a canvas: https://github.com/flutter-ml/google_ml_kit_flutter/blob/master/packages/example/lib/vision_detector_views/painters/coordinates_translator.dart
+    final sensorOrientation = _camera.currentState?.sensorOrientation;
+    if (sensorOrientation == null) return null;
+    InputImageRotation? rotation = InputImageRotationValue.fromRawValue(
+      sensorOrientation,
+    );
+    if (rotation == null) return null;
+
+    // get image format
+    final format = InputImageFormatValue.fromRawValue(image.format.raw);
+    // validate format depending on platform
+    // only supported formats:
+    // * nv21 for Android
+    // * bgra8888 for iOS
+    if (format == null ||
+        (Platform.isAndroid && format != InputImageFormat.nv21) ||
+        (Platform.isIOS && format != InputImageFormat.bgra8888)) {
+      return null;
+    }
+
+    // since format is constraint to nv21 or bgra8888, both only have one plane
+    if (image.planes.length != 1) return null;
+    final plane = image.planes.first;
+
+    // compose InputImage using bytes
+    return InputImage.fromBytes(
+      bytes: plane.bytes,
+      metadata: InputImageMetadata(
+        size: Size(image.width.toDouble(), image.height.toDouble()),
+        rotation: rotation, // used only in Android
+        format: format, // used only in iOS
+        bytesPerRow: plane.bytesPerRow, // used only in iOS
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -174,9 +238,10 @@ class _LivenessScreenState extends State<LivenessScreen>
           ValueListenableBuilder<String>(
             valueListenable: _guideText,
             builder: (context, value, child) {
-              return Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Text(value, textAlign: TextAlign.center),
+              return Container(
+                height: 50,
+                alignment: Alignment.center,
+                child: Text(value),
               );
             },
           ),
@@ -188,6 +253,10 @@ class _LivenessScreenState extends State<LivenessScreen>
                 key: _camera,
                 lensDirection: CameraLensDirection.front,
                 imageStream: _handleImageStream,
+                resolutionPreset: ResolutionPreset.medium,
+                onCameraStart: () {
+                  _lastFrameTimestamp = DateTime.now();
+                },
               ),
             ),
           ),

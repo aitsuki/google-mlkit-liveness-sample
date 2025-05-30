@@ -110,6 +110,7 @@ class LivenessViewModel(application: Application) : AndroidViewModel(application
                 override fun run() {
                     framesPerSecond = frameProcessedInOneSecondInterval
                     frameProcessedInOneSecondInterval = 0
+                    Log.d("Liveness", "FPS: $framesPerSecond")
                 }
             },
             0,
