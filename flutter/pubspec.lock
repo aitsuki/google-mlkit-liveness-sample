@@ -33,14 +33,6 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "0.11.1"
-  camera_android:
-    dependency: "direct main"
-    description:
-      name: camera_android
-      sha256: "08808be7e26fc3c7426c81b3fa387564b8e9c22e6fe9cb5675ce3ab7017d8203"
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "0.10.10+3"
   camera_android_camerax:
     dependency: transitive
     description:
@@ -227,10 +219,10 @@ packages:
     dependency: "direct main"
     description:
       name: google_mlkit_face_detection
-      sha256: f336737d5b8a86797fd4368f42a5c26aeaa9c6dcc5243f0a16b5f6f663cfb70a
+      sha256: "0aeab4f39204f7a235ed4cccedfe7e61401b43f4ef139a868c01fa29fdc225ab"
       url: "https://pub.flutter-io.cn"
     source: hosted
-    version: "0.13.1"
+    version: "0.11.1"
   http:
     dependency: transitive
     description:

@@ -1,5 +1,4 @@
 import 'dart:developer';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
@@ -8,6 +7,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:liveness/camera/camera_view.dart';
 import 'package:liveness/camera/liveness_state_handle.dart';
+import 'package:liveness/camera/nv21.dart';
 
 class LivenessScreen extends StatefulWidget {
   const LivenessScreen({super.key});
@@ -187,30 +187,28 @@ class _LivenessScreenState extends State<LivenessScreen>
     );
     if (rotation == null) return null;
 
-    // get image format
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    // validate format depending on platform
-    // only supported formats:
-    // * nv21 for Android
-    // * bgra8888 for iOS
-    if (format == null ||
-        (Platform.isAndroid && format != InputImageFormat.nv21) ||
-        (Platform.isIOS && format != InputImageFormat.bgra8888)) {
-      return null;
+    if (format == null) return null;
+
+    Uint8List? bytes;
+    if (format == InputImageFormat.yuv420 ||
+        format == InputImageFormat.yuv_420_888) {
+      if (image.planes.length != 3) return null;
+      bytes = image.getNv21Uint8List();
+    } else if (format == InputImageFormat.nv21 ||
+        format == InputImageFormat.bgra8888) {
+      bytes = image.planes.first.bytes;
     }
 
-    // since format is constraint to nv21 or bgra8888, both only have one plane
-    if (image.planes.length != 1) return null;
-    final plane = image.planes.first;
-
+    if (bytes == null) return null;
     // compose InputImage using bytes
     return InputImage.fromBytes(
-      bytes: plane.bytes,
+      bytes: bytes,
       metadata: InputImageMetadata(
         size: Size(image.width.toDouble(), image.height.toDouble()),
         rotation: rotation, // used only in Android
         format: format, // used only in iOS
-        bytesPerRow: plane.bytesPerRow, // used only in iOS
+        bytesPerRow: image.planes.first.bytesPerRow, // used only in iOS
       ),
     );
   }
