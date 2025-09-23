@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">LivenessSample</string>
+    <string name="err_face_not_center">Please move your face to the center of the screen</string>
+    <string name="err_face_too_far">Please move closer</string>
+    <string name="err_face_too_close">Please move farther away</string>
+    <string name="err_multiple_faces">Multiple faces detected, please ensure only one person is in view</string>
+    <string name="liveness_front">Please make sure your face is in the center of the screen</string>
+    <string name="liveness_smile">Please smile</string>
+    <string name="liveness_side">Please slowly turn your head left or right</string>
+    <string name="liveness_mouth">Please open your mouth</string>
 </resources>

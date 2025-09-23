@@ -1,11 +1,9 @@
 package com.aitsuki.liveness.sample
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,7 +21,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun HomeScreen(navController: NavController) {
     var images: Array<String> by remember { mutableStateOf(emptyArray()) }
@@ -57,8 +59,16 @@ fun HomeScreen(navController: NavController) {
                     )
                 }
             }
-            Button(onClick = {
+
+            val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA) {
                 navController.navigate(Routes.Liveness)
+            }
+            Button(onClick = {
+                if (cameraPermissionState.status.isGranted) {
+                    navController.navigate(Routes.Liveness)
+                } else {
+                    cameraPermissionState.launchPermissionRequest()
+                }
             }, modifier = Modifier.fillMaxWidth()) {
                 Text("Start Liveness")
             }

@@ -7,12 +7,12 @@ plugins {
 
 android {
     namespace = "com.aitsuki.liveness.sample"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.aitsuki.liveness.sample"
-        minSdk = 21
-        targetSdk = 35
+        minSdk = 23
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
