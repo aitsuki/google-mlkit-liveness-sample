@@ -40,12 +40,11 @@ private class LivenessController {
         }
     }
 
-    fun onFailedDetection(): Boolean {
+    fun onFailedDetection() {
         retryCount++
-        return if (retryCount > maxRetries) {
+        if (retryCount > maxRetries) {
             reset()
-            true
-        } else false
+        }
     }
 
     fun getStep() = currentStep
@@ -100,7 +99,7 @@ class FaceAnalyzer(
                 }
 
                 val face = faces[0]
-                val faceRect = clampRect(face.boundingBox, frameW, frameH).insetPercent(0.1f)
+                val faceRect = clampRect(face.boundingBox, frameW, frameH)
 
                 // 面部位置 & 距离检测
                 if (step == LivenessStep.FRONT) {
@@ -170,12 +169,6 @@ fun ImageProxy.toRotatedBitmap(): Bitmap {
     if (rotationDegrees == 0) return bitmap
     val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
     return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-}
-
-private fun Rect.insetPercent(p: Float): Rect {
-    val dx = (width() * p).toInt()
-    val dy = (height() * p).toInt()
-    return Rect(left + dx, top + dy, right - dx, bottom - dy)
 }
 
 private fun clampRect(r: Rect, maxW: Int, maxH: Int): Rect {

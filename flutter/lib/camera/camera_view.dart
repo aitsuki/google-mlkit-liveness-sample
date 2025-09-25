@@ -11,6 +11,7 @@ class CameraView extends StatefulWidget {
     this.flashMode = FlashMode.off,
     this.lensDirection = CameraLensDirection.back,
     this.resolutionPreset = ResolutionPreset.high,
+    this.clipBorderRadius = BorderRadius.zero,
     this.imageStream,
     this.onCameraStart,
     this.onCameraStop,
@@ -22,6 +23,7 @@ class CameraView extends StatefulWidget {
   final void Function(CameraImage image)? imageStream;
   final VoidCallback? onCameraStart;
   final VoidCallback? onCameraStop;
+  final BorderRadiusGeometry clipBorderRadius;
 
   @override
   State<CameraView> createState() => CameraViewState();
@@ -99,18 +101,22 @@ class CameraViewState extends State<CameraView> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    _stopLiveFeed();
-    widget.onCameraStop?.call();
-    WakelockPlus.disable();
-    WidgetsBinding.instance.removeObserver(this);
+    _stopLiveFeed().then((_) {
+      widget.onCameraStop?.call();
+      WakelockPlus.disable();
+      WidgetsBinding.instance.removeObserver(this);
+    });
     super.dispose();
   }
 
   Future<void> _stopLiveFeed() async {
-    if (widget.imageStream != null) {
-      await _controller?.stopImageStream();
+    if (_controller != null) {
+      if (widget.imageStream != null) {
+        await _controller!.stopImageStream();
+      }
+      await _controller!.dispose();
+      _controller = null;
     }
-    await _controller?.dispose();
   }
 
   @override
@@ -119,11 +125,12 @@ class CameraViewState extends State<CameraView> with WidgetsBindingObserver {
     final CameraController? controller = _controller;
     if (state == AppLifecycleState.inactive) {
       if (controller != null && controller.value.isInitialized) {
-        _stopLiveFeed();
-        widget.onCameraStop?.call();
+        _stopLiveFeed().then((_) {
+          widget.onCameraStop?.call();
+        });
       }
     } else if (state == AppLifecycleState.resumed) {
-      if (_controller == null || !_controller!.value.isInitialized) {
+      if (_controller == null) {
         _initCamera();
       }
     }
@@ -135,7 +142,8 @@ class CameraViewState extends State<CameraView> with WidgetsBindingObserver {
     if (controller == null || !controller.value.isInitialized) {
       return Container();
     } else {
-      return ClipRect(
+      return ClipRRect(
+        borderRadius: widget.clipBorderRadius,
         child: FittedBox(
           fit: BoxFit.cover,
           child: SizedBox(

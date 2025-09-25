@@ -21,15 +21,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _handleCamera() async {
-    final result = await Navigator.pushNamed(context, '/camera');
-    if (mounted && result != null) {
-      setState(() {
-        images = [result as Uint8List];
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -46,24 +37,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
             ),
-            Padding(
+            Container(
               padding: EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: _handleLiveness,
-                      child: Text("Liveness"),
-                    ),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: _handleCamera,
-                      child: Text("Camera"),
-                    ),
-                  ),
-                ],
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _handleLiveness,
+                child: Text("Liveness"),
               ),
             ),
           ],
