@@ -110,20 +110,25 @@ class CameraViewState extends State<CameraView> with WidgetsBindingObserver {
   }
 
   Future<void> _stopLiveFeed() async {
-    if (_controller != null) {
-      if (widget.imageStream != null) {
-        await _controller!.stopImageStream();
-      }
-      await _controller!.dispose();
-      _controller = null;
+    final controller = _controller;
+    if (controller == null) return;
+
+    _controller = null;
+    if (mounted) {
+      setState(() {}); // 先移除 CameraPreview
     }
+
+    if (widget.imageStream != null) {
+      await controller.stopImageStream();
+    }
+    await controller.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     final CameraController? controller = _controller;
-    if (state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused) {
       if (controller != null && controller.value.isInitialized) {
         _stopLiveFeed().then((_) {
           widget.onCameraStop?.call();
