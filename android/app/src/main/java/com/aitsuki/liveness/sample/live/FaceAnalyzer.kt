@@ -1,18 +1,21 @@
 package com.aitsuki.liveness.sample.live
 
-import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.graphics.Rect
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import java.io.File.createTempFile
+import java.util.concurrent.Executor
 import kotlin.math.abs
 
-enum class LivenessStep {
+enum class LiveStep {
     FRONT, SMILE, SIDE, DONE
 }
 
@@ -20,23 +23,23 @@ enum class FaceError {
     NOT_CENTER, TOO_FAR, TOO_CLOSE, MULTIPLE_FACES, NONE
 }
 
-private class LivenessController {
-    private var currentStep: LivenessStep = LivenessStep.FRONT
+private class LiveController {
+    private var currentStep: LiveStep = LiveStep.FRONT
     private var retryCount = 0
     private val maxRetries = 5
 
     fun reset() {
-        currentStep = LivenessStep.FRONT
+        currentStep = LiveStep.FRONT
         retryCount = 0
     }
 
     fun nextStep() {
         retryCount = 0
         currentStep = when (currentStep) {
-            LivenessStep.FRONT -> LivenessStep.SMILE
-            LivenessStep.SMILE -> LivenessStep.SIDE
-            LivenessStep.SIDE -> LivenessStep.DONE
-            else -> LivenessStep.DONE
+            LiveStep.FRONT -> LiveStep.SMILE
+            LiveStep.SMILE -> LiveStep.SIDE
+            LiveStep.SIDE -> LiveStep.DONE
+            else -> LiveStep.DONE
         }
     }
 
@@ -51,26 +54,58 @@ private class LivenessController {
 }
 
 class FaceAnalyzer(
-    private val onCapture: (Bitmap, LivenessStep) -> Unit,
-    private val onStatusUpdate: (LivenessStep, FaceError) -> Unit,
+    private val imageCapture: ImageCapture,
+    private val outputDirectory: java.io.File,
+    private val executor: Executor,
+    private val onImageCaptured: (LiveStep, String) -> Unit,
+    private val onStatusUpdate: (LiveStep, FaceError) -> Unit,
     private val onDone: () -> Unit
 ) : ImageAnalysis.Analyzer {
 
-    private val controller = LivenessController()
+    private val controller = LiveController()
+
+    @Volatile
+    private var isTaking = false
 
     private val detector by lazy {
         val options = FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
             .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
-            .setMinFaceSize(0.7f)
+            .setMinFaceSize(0.15f)
             .build()
         FaceDetection.getClient(options)
     }
 
     private var stepSuccessTime = 0L
 
-    private fun handleFailure(step: LivenessStep,  error: FaceError) {
+    private fun takePicture(step: LiveStep, onResult: (Boolean) -> Unit) {
+        isTaking = true
+        val outputFile = createTempFile("face_${step.name}_", ".jpg", outputDirectory)
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(outputFile).build()
+
+        imageCapture.takePicture(
+            outputOptions,
+            executor,
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                    Log.d("Liveness", "Image captured for step $step: ${outputFile.absolutePath}")
+                    onImageCaptured(step, outputFile.absolutePath)
+                    isTaking = false
+                    onResult(true)
+                }
+
+                override fun onError(exception: ImageCaptureException) {
+                    Log.e("Liveness", "Image capture failed for step $step", exception)
+                    isTaking = false
+                    onResult(false)
+                }
+            }
+        )
+    }
+
+
+    private fun handleFailure(step: LiveStep, error: FaceError) {
         stepSuccessTime = 0L
         onStatusUpdate(step, error)
         controller.onFailedDetection()
@@ -78,8 +113,11 @@ class FaceAnalyzer(
 
     @OptIn(ExperimentalGetImage::class)
     override fun analyze(imageProxy: ImageProxy) {
+        // 如果正在拍照，跳过分析
+        if (isTaking) return imageProxy.close()
+
         val step = controller.getStep()
-        if (step == LivenessStep.DONE) return imageProxy.close()
+        if (step == LiveStep.DONE) return imageProxy.close()
         val mediaImage = imageProxy.image ?: return imageProxy.close()
         val rotation = imageProxy.imageInfo.rotationDegrees
         val reverseWH = rotation == 90 || rotation == 270
@@ -102,7 +140,7 @@ class FaceAnalyzer(
                 val faceRect = clampRect(face.boundingBox, frameW, frameH)
 
                 // 面部位置 & 距离检测
-                if (step == LivenessStep.FRONT) {
+                if (step == LiveStep.FRONT) {
                     val faceDistance = computeFrontFaceDistance(faceRect, frameW, frameH)
                     if (faceDistance == FaceDistance.TOO_FAR) {
                         handleFailure(step, FaceError.TOO_FAR)
@@ -125,10 +163,9 @@ class FaceAnalyzer(
                 val pitch = face.headEulerAngleX // 上下点头角度
 
                 val success = when (step) {
-                    LivenessStep.FRONT -> yaw in -12.0..12.0 && pitch in -8.0..8.0
-                    LivenessStep.SMILE -> (face.smilingProbability ?: 0f) > 0.3f
-                    LivenessStep.SIDE -> yaw < -20 || yaw > 20
-                    else -> false
+                    LiveStep.FRONT -> yaw in -12.0..12.0 && pitch in -8.0..8.0
+                    LiveStep.SMILE -> (face.smilingProbability ?: 0f) > 0.3f
+                    LiveStep.SIDE -> yaw < -20 || yaw > 20
                 }
 
                 if (success) {
@@ -139,19 +176,24 @@ class FaceAnalyzer(
                         // 检查是否已经持续成功足够长时间
                         val elapsedTime = currentTime - stepSuccessTime
                         val delayTime = when (step) {
-                            LivenessStep.FRONT -> 1000L
-                            LivenessStep.SMILE -> 500L
-                            LivenessStep.SIDE -> 250L
-                            else -> 0L
+                            LiveStep.FRONT -> 1000L
+                            LiveStep.SMILE -> 500L
+                            LiveStep.SIDE -> 250L
                         }
-                        if (elapsedTime >= delayTime) {
-                            val bitmap = imageProxy.toRotatedBitmap()
-                            onCapture(bitmap, step)
-                            controller.nextStep()
-                            if (controller.getStep() == LivenessStep.DONE) {
-                                onDone()
+                        if (elapsedTime >= delayTime && !isTaking) {
+                            takePicture(step) { success ->
+                                if (success) {
+                                    // 拍照成功，进入下一步
+                                    controller.nextStep()
+                                    if (controller.getStep() == LiveStep.DONE) {
+                                        onDone()
+                                    }
+                                } else {
+                                    // 拍照失败，重置成功时间，需要重新满足条件后重拍
+                                    Log.w("Liveness", "Photo capture failed for step $step, retrying...")
+                                }
+                                stepSuccessTime = 0L
                             }
-                            stepSuccessTime = 0L
                         }
                     }
                 } else {
@@ -163,13 +205,6 @@ class FaceAnalyzer(
     }
 }
 
-fun ImageProxy.toRotatedBitmap(): Bitmap {
-    val bitmap = this.toBitmap()
-    val rotationDegrees = this.imageInfo.rotationDegrees
-    if (rotationDegrees == 0) return bitmap
-    val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
-    return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-}
 
 private fun clampRect(r: Rect, maxW: Int, maxH: Int): Rect {
     val l = r.left.coerceIn(0, maxW)

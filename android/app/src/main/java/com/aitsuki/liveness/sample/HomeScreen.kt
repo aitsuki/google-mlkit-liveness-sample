@@ -11,7 +11,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -19,20 +18,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavController
 import coil3.compose.AsyncImage
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberPermissionState
 
-@OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun HomeScreen(navController: NavController) {
+fun HomeScreen() {
+    val backStack = LocalBackStack.current
     var images: Array<String> by remember { mutableStateOf(emptyArray()) }
-    LaunchedEffect(Unit) {
-        navController.currentBackStackEntry?.savedStateHandle?.let { savedStateHandle ->
-            images = savedStateHandle.remove<Array<String>>("images") ?: emptyArray()
-        }
+
+    ResultEffect<Array<String>> { result ->
+        images = result
     }
 
     Scaffold { innerPadding ->
@@ -60,15 +54,8 @@ fun HomeScreen(navController: NavController) {
                 }
             }
 
-            val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA) {
-                navController.navigate(Routes.Liveness)
-            }
             Button(onClick = {
-                if (cameraPermissionState.status.isGranted) {
-                    navController.navigate(Routes.Liveness)
-                } else {
-                    cameraPermissionState.launchPermissionRequest()
-                }
+                backStack.add(AppRoute.Liveness)
             }, modifier = Modifier.fillMaxWidth()) {
                 Text("Start Liveness")
             }

@@ -1,23 +1,22 @@
 [versions]
-agp = "8.13.0"
-coilCompose = "3.0.4"
+agp = "8.13.2"
+coilCompose = "3.3.0"
 faceDetection = "16.1.7"
-kotlin = "2.1.0"
+kotlin = "2.3.0"
 coreKtx = "1.17.0"
 junit = "4.13.2"
 junitVersion = "1.3.0"
 espressoCore = "3.7.0"
-kotlinxSerializationJson = "1.8.0"
-lifecycleRuntimeKtx = "2.9.3"
-activityCompose = "1.11.0"
-composeBom = "2025.09.00"
-camerax = "1.5.0"
-accompanist = "0.37.0"
-navigationCompose = "2.9.4"
+kotlinxSerializationJson = "1.9.0"
+lifecycleRuntimeKtx = "2.10.0"
+activityCompose = "1.12.2"
+composeBom = "2025.12.01"
+camerax = "1.5.2"
+accompanist = "0.37.3"
+navigation3 = "1.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coilCompose" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coilCompose" }
 face-detection = { module = "com.google.mlkit:face-detection", version.ref = "faceDetection" }
@@ -34,17 +33,14 @@ androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
-# Contains the basic camera functionality such as SurfaceRequest
 androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "camerax" }
-# Contains the CameraXViewfinder composable
 androidx-camera-compose = { module = "androidx.camera:camera-compose", version.ref = "camerax" }
-# Allows us to bind the camera preview to our UI lifecycle
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
-# The specific camera implementation that renders the preview
 androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
-# The helper library to grant the camera permission
 accompanist-permissions = { module = "com.google.accompanist:accompanist-permissions", version.ref = "accompanist" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "navigation3" }
+androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "navigation3" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

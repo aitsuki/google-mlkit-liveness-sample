@@ -19,6 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "LivenessSample"
+rootProject.name = "Liveness"
 include(":app")
  
