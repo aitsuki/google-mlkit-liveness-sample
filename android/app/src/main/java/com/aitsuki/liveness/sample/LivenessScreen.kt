@@ -45,9 +45,17 @@ import com.aitsuki.liveness.sample.live.LiveStep
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
+import java.io.File
 import java.util.concurrent.Executors
 import kotlin.coroutines.cancellation.CancellationException
+
+// process-lifetime scope; move to an injected application scope if cleanup grows.
+private val imageCleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -106,7 +114,13 @@ private fun CameraPreviewContent(modifier: Modifier = Modifier) {
             executor = ContextCompat.getMainExecutor(context),
             onImageCaptured = { step, filePath ->
                 Log.d("Liveness", "Image captured for step $step: $filePath")
-                capturedImages[step] = filePath
+                capturedImages.put(step, filePath)?.let { oldPath ->
+                    imageCleanupScope.launch {
+                        runCatching { File(oldPath).delete() }
+                            .onSuccess { if (!it) Log.w("Liveness", "Failed to delete $oldPath") }
+                            .onFailure { Log.w("Liveness", "Failed to delete $oldPath", it) }
+                    }
+                }
             },
             onStatusUpdate = { step, error ->
                 guideText = when (step) {
