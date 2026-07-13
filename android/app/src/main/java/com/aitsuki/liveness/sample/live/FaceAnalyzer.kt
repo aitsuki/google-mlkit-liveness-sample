@@ -203,6 +203,13 @@ class FaceAnalyzer(
             .addOnFailureListener { controller.onFailedDetection() }
             .addOnCompleteListener { imageProxy.close() }
     }
+
+    fun close() {
+        try {
+            detector.close()
+        } catch (_: Exception) {
+        }
+    }
 }
 
 

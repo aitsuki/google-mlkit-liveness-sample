@@ -9,6 +9,7 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceRequest
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.lifecycle.awaitInstance
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -20,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
@@ -45,9 +45,9 @@ import com.aitsuki.liveness.sample.live.LiveStep
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import kotlinx.coroutines.awaitCancellation
 import java.util.concurrent.Executors
-import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
+import kotlin.coroutines.cancellation.CancellationException
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -137,15 +137,8 @@ private fun CameraPreviewContent(modifier: Modifier = Modifier) {
     }
 
     LaunchedEffect(lifecycleOwner) {
-        val cameraProvider = suspendCoroutine { continuation ->
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-            cameraProviderFuture.addListener({
-                continuation.resume(cameraProviderFuture.get())
-            }, ContextCompat.getMainExecutor(context))
-        }
-
+        val cameraProvider = ProcessCameraProvider.awaitInstance(context)
         try {
-            cameraProvider.unbindAll()
             cameraProvider.bindToLifecycle(
                 lifecycleOwner,
                 CameraSelector.DEFAULT_FRONT_CAMERA,
@@ -153,17 +146,17 @@ private fun CameraPreviewContent(modifier: Modifier = Modifier) {
                 imageAnalysisUseCase,
                 imageCaptureUseCase
             )
-
             imageAnalysisUseCase.setAnalyzer(analyzerExecutor, faceAnalyzer)
             Log.d("Liveness", "Camera bound to lifecycle")
+            awaitCancellation()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("Liveness", "Failed to bind camera", e)
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
+        } finally {
+            cameraProvider.unbindAll()
             analyzerExecutor.shutdown()
+            faceAnalyzer.close()
         }
     }
 
