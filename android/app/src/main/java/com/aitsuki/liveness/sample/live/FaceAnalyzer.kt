@@ -1,6 +1,7 @@
 package com.aitsuki.liveness.sample.live
 
 import android.graphics.Rect
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.camera.core.ExperimentalGetImage
@@ -23,18 +24,18 @@ enum class FaceError {
     NOT_CENTER, TOO_FAR, TOO_CLOSE, MULTIPLE_FACES, NONE
 }
 
-private class LiveController {
+internal class LiveController {
     private var currentStep: LiveStep = LiveStep.FRONT
-    private var retryCount = 0
-    private val maxRetries = 5
+    private var failureSince = 0L
+    private val resetTimeout = 1500L
 
     fun reset() {
         currentStep = LiveStep.FRONT
-        retryCount = 0
+        failureSince = 0L
     }
 
     fun nextStep() {
-        retryCount = 0
+        failureSince = 0L
         currentStep = when (currentStep) {
             LiveStep.FRONT -> LiveStep.SMILE
             LiveStep.SMILE -> LiveStep.SIDE
@@ -43,11 +44,13 @@ private class LiveController {
         }
     }
 
-    fun onFailedDetection() {
-        retryCount++
-        if (retryCount > maxRetries) {
-            reset()
-        }
+    fun onFailedDetection(now: Long) {
+        if (failureSince == 0L) failureSince = now
+        else if (now - failureSince >= resetTimeout) reset()
+    }
+
+    fun onValidDetection() {
+        failureSince = 0L
     }
 
     fun getStep() = currentStep
@@ -108,7 +111,7 @@ class FaceAnalyzer(
     private fun handleFailure(step: LiveStep, error: FaceError) {
         stepSuccessTime = 0L
         onStatusUpdate(step, error)
-        controller.onFailedDetection()
+        controller.onFailedDetection(SystemClock.elapsedRealtime())
     }
 
     @OptIn(ExperimentalGetImage::class)
@@ -157,6 +160,7 @@ class FaceAnalyzer(
                     }
                 }
 
+                controller.onValidDetection()
                 onStatusUpdate(step, FaceError.NONE)
 
                 val yaw = face.headEulerAngleY // 左右摇头角度
@@ -200,7 +204,7 @@ class FaceAnalyzer(
                     stepSuccessTime = 0L
                 }
             }
-            .addOnFailureListener { controller.onFailedDetection() }
+            .addOnFailureListener { controller.onFailedDetection(SystemClock.elapsedRealtime()) }
             .addOnCompleteListener { imageProxy.close() }
     }
 
