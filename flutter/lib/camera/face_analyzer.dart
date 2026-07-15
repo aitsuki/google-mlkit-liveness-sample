@@ -1,11 +1,8 @@
-import 'dart:developer';
-import 'dart:typed_data';
-
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:liveness/camera/camera_view.dart';
-import 'package:liveness/camera/nv21.dart';
+import 'package:liveness/devlog.dart';
 
 enum LivenessStep { front, smile, side, done }
 
@@ -79,7 +76,7 @@ class FaceAnalyzer {
     final step = _controller.step;
     if (step == LivenessStep.done) return;
     final inputImage = _inputImageFromCameraImage(cameraImage);
-    if (inputImage == null) {
+    if (inputImage == null || inputImage.metadata == null) {
       handleFailure(step, FaceError.none);
       return;
     }
@@ -93,8 +90,8 @@ class FaceAnalyzer {
       return;
     }
 
-    final rotation = inputImage.metadata.rotation;
-    final imageSize = inputImage.metadata.size;
+    final rotation = inputImage.metadata!.rotation;
+    final imageSize = inputImage.metadata!.size;
     final reverseWH =
         rotation == InputImageRotation.rotation90deg ||
         rotation == InputImageRotation.rotation270deg;
@@ -164,7 +161,7 @@ class FaceAnalyzer {
     try {
       return cameraKey.currentState?.takePicture();
     } catch (e) {
-      log('Error capturing photo', error: e);
+      devLog('Error capturing photo', error: e);
     }
     return null;
   }
@@ -217,27 +214,20 @@ class FaceAnalyzer {
     if (rotation == null) return null;
 
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    if (format == null) return null;
-
-    Uint8List? bytes;
-    if (format == InputImageFormat.yuv420 ||
-        format == InputImageFormat.yuv_420_888) {
-      if (image.planes.length != 3) return null;
-      bytes = image.getNv21Uint8List();
-    } else if (format == InputImageFormat.nv21 ||
-        format == InputImageFormat.bgra8888) {
-      bytes = image.planes.first.bytes;
-    }
-
-    if (bytes == null) return null;
+    devLog(
+      "inputImage: format = $format, plans = ${image.planes.length}, rotation = $rotation, width = ${image.width}, height = ${image.height}",
+    );
+    if (format == null || format != InputImageFormat.nv21) return null;
+    if (image.planes.length != 1) return null;
+    final plane = image.planes.first;
     // compose InputImage using bytes
     return InputImage.fromBytes(
-      bytes: bytes,
+      bytes: plane.bytes,
       metadata: InputImageMetadata(
         size: Size(image.width.toDouble(), image.height.toDouble()),
         rotation: rotation, // used only in Android
         format: format, // used only in iOS
-        bytesPerRow: image.planes.first.bytesPerRow, // used only in iOS
+        bytesPerRow: plane.bytesPerRow, // used only in iOS
       ),
     );
   }

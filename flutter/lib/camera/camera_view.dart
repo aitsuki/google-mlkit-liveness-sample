@@ -1,8 +1,8 @@
-import 'dart:developer';
 import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:liveness/devlog.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 class CameraView extends StatefulWidget {
@@ -37,7 +37,7 @@ class CameraViewState extends State<CameraView> with WidgetsBindingObserver {
   void _initController(CameraDescription camera) async {
     _controller = CameraController(
       camera,
-      ResolutionPreset.medium,
+      widget.resolutionPreset,
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid
           ? ImageFormatGroup.nv21
@@ -53,7 +53,7 @@ class CameraViewState extends State<CameraView> with WidgetsBindingObserver {
       }
       setState(() {});
     } catch (e) {
-      log("init controller error", error: e);
+      devLog("init controller error", error: e);
     }
   }
 
@@ -65,7 +65,7 @@ class CameraViewState extends State<CameraView> with WidgetsBindingObserver {
       );
       _initController(camera);
     } catch (e) {
-      log("init camera error", error: e);
+      devLog("init camera error", error: e);
     }
   }
 
@@ -101,20 +101,20 @@ class CameraViewState extends State<CameraView> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    _stopLiveFeed().then((_) {
+    _stopLiveFeed(rebuild: false).then((_) {
       widget.onCameraStop?.call();
       WakelockPlus.disable();
-      WidgetsBinding.instance.removeObserver(this);
     });
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  Future<void> _stopLiveFeed() async {
+  Future<void> _stopLiveFeed({bool rebuild = true}) async {
     final controller = _controller;
     if (controller == null) return;
 
     _controller = null;
-    if (mounted) {
+    if (rebuild && mounted) {
       setState(() {}); // 先移除 CameraPreview
     }
 

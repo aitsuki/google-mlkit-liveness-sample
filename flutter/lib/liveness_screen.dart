@@ -127,9 +127,12 @@ class _LivenessScreenState extends State<LivenessScreen>
                 lensDirection: CameraLensDirection.front,
                 imageStream: (cameraImage) async {
                   if (_isBusy) return;
-                  _isBusy = true;
-                  await _faceAnalyzer.analyze(cameraImage);
-                  _isBusy = false;
+                  try {
+                    _isBusy = true;
+                    await _faceAnalyzer.analyze(cameraImage);
+                  } finally {
+                    _isBusy = false;
+                  }
                 },
                 resolutionPreset: ResolutionPreset.medium,
               ),
