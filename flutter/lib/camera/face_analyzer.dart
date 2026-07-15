@@ -8,20 +8,21 @@ enum LivenessStep { front, smile, side, done }
 
 enum FaceError { notCenter, tooFar, tooClose, multipleFaces, none }
 
-class _LivenessController {
+@visibleForTesting
+class LivenessController {
   var _currentStep = LivenessStep.front;
-  var _retryCount = 0;
-  final _maxRetries = 5;
+  int? _failureSince;
+  static const _resetTimeout = 1500;
 
   LivenessStep get step => _currentStep;
 
   void reset() {
     _currentStep = LivenessStep.front;
-    _retryCount = 0;
+    _failureSince = null;
   }
 
   void nextStep() {
-    _retryCount = 0;
+    _failureSince = null;
     _currentStep = switch (_currentStep) {
       LivenessStep.front => LivenessStep.smile,
       LivenessStep.smile => LivenessStep.side,
@@ -30,12 +31,16 @@ class _LivenessController {
     };
   }
 
-  void onFailedDetection() {
-    _retryCount++;
-    if (_retryCount > _maxRetries) {
+  void onFailedDetection(int now) {
+    final failureSince = _failureSince;
+    if (failureSince == null) {
+      _failureSince = now;
+    } else if (now - failureSince >= _resetTimeout) {
       reset();
     }
   }
+
+  void onValidDetection() => _failureSince = null;
 }
 
 class FaceAnalyzer {
@@ -43,7 +48,8 @@ class FaceAnalyzer {
   final Function(LivenessStep step, XFile file) onCapture;
   final VoidCallback onDone;
 
-  final _controller = _LivenessController();
+  final _controller = LivenessController();
+  final _clock = Stopwatch()..start();
   final GlobalKey<CameraViewState> cameraKey;
 
   final _dector = FaceDetector(
@@ -69,7 +75,7 @@ class FaceAnalyzer {
   void handleFailure(LivenessStep step, FaceError error) {
     _stepSuccessTime = 0;
     statusCallback(step, error);
-    _controller.onFailedDetection();
+    _controller.onFailedDetection(_clock.elapsedMilliseconds);
   }
 
   Future<void> analyze(CameraImage cameraImage) async {
@@ -99,7 +105,7 @@ class FaceAnalyzer {
     final frameH = reverseWH ? imageSize.width : imageSize.height;
 
     final face = faces.first;
-    final faceRect = clampRect(face.boundingBox, frameH, frameH);
+    final faceRect = clampRect(face.boundingBox, frameW, frameH);
 
     // 面部位置 & 距离检测
     if (step == LivenessStep.front) {
@@ -116,10 +122,11 @@ class FaceAnalyzer {
       }
     }
 
+    _controller.onValidDetection();
     statusCallback(step, FaceError.none);
 
     final yaw = face.headEulerAngleY ?? 0.0;
-    final pitch = face.headEulerAngleZ ?? 0.0;
+    final pitch = face.headEulerAngleX ?? 0.0;
 
     final success = switch (step) {
       LivenessStep.front =>
@@ -130,7 +137,7 @@ class FaceAnalyzer {
     };
 
     if (success) {
-      final now = DateTime.now().millisecondsSinceEpoch;
+      final now = _clock.elapsedMilliseconds;
       if (_stepSuccessTime == 0) {
         _stepSuccessTime = now;
       } else {
@@ -214,9 +221,6 @@ class FaceAnalyzer {
     if (rotation == null) return null;
 
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    devLog(
-      "inputImage: format = $format, plans = ${image.planes.length}, rotation = $rotation, width = ${image.width}, height = ${image.height}",
-    );
     if (format == null || format != InputImageFormat.nv21) return null;
     if (image.planes.length != 1) return null;
     final plane = image.planes.first;

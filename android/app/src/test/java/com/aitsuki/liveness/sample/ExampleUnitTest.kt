@@ -13,10 +13,10 @@ class ExampleUnitTest {
         controller.onFailedDetection(1_000L)
         controller.onValidDetection()
         controller.onFailedDetection(4_000L)
-        controller.onFailedDetection(5_999L)
+        controller.onFailedDetection(5_499L)
         assertEquals(LiveStep.SMILE, controller.getStep())
 
-        controller.onFailedDetection(6_000L)
+        controller.onFailedDetection(5_500L)
         assertEquals(LiveStep.FRONT, controller.getStep())
     }
 }

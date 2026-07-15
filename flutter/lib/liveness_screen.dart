@@ -13,8 +13,7 @@ class LivenessScreen extends StatefulWidget {
   State<LivenessScreen> createState() => _LivenessScreenState();
 }
 
-class _LivenessScreenState extends State<LivenessScreen>
-    with WidgetsBindingObserver {
+class _LivenessScreenState extends State<LivenessScreen> {
   late final FaceAnalyzer _faceAnalyzer;
   final _camera = GlobalKey<CameraViewState>();
   final _livenessPictures = <LivenessStep, XFile>{};
