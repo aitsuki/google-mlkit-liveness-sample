@@ -37,8 +37,10 @@ dependencies:
   google_mlkit_face_detection: ^0.14.0
 
 dev_dependencies:
+  camera_platform_interface: 2.13.1
   flutter_test:
     sdk: flutter
+  wakelock_plus_platform_interface: 1.5.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

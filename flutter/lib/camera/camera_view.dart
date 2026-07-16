@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -31,50 +32,94 @@ class CameraView extends StatefulWidget {
 
 class CameraViewState extends State<CameraView> with WidgetsBindingObserver {
   CameraController? _controller;
+  Future<void> _cameraTask = Future.value();
+  var _wantCamera = true;
+  var _didStart = false;
+  VoidCallback? _onCameraStop;
 
   int? get sensorOrientation => _controller?.description.sensorOrientation;
 
-  void _initController(CameraDescription camera) async {
-    _controller = CameraController(
-      camera,
-      widget.resolutionPreset,
-      enableAudio: false,
-      imageFormatGroup: Platform.isAndroid
-          ? ImageFormatGroup.nv21
-          : ImageFormatGroup.bgra8888,
-    );
-    try {
-      await _controller!.initialize();
-      if (!mounted) return;
-      widget.onCameraStart?.call();
-      _controller!.setFlashMode(widget.flashMode);
-      if (widget.imageStream != null) {
-        _controller!.startImageStream(widget.imageStream!);
-      }
-      setState(() {});
-    } catch (e) {
-      devLog("init controller error", error: e);
-    }
-  }
+  bool _isCurrent(CameraController controller) =>
+      mounted && _wantCamera && identical(_controller, controller);
 
-  void _initCamera() async {
+  Future<void> _initCamera() async {
+    CameraController? controller;
     try {
       final cameras = await availableCameras();
+      if (!mounted || !_wantCamera) return;
+
       final camera = cameras.firstWhere(
         (camera) => camera.lensDirection == widget.lensDirection,
       );
-      _initController(camera);
-    } catch (e) {
-      devLog("init camera error", error: e);
+      controller = CameraController(
+        camera,
+        widget.resolutionPreset,
+        enableAudio: false,
+        imageFormatGroup: Platform.isAndroid
+            ? ImageFormatGroup.nv21
+            : ImageFormatGroup.bgra8888,
+      );
+      _controller = controller;
+
+      await controller.initialize();
+      if (!_isCurrent(controller)) {
+        if (identical(_controller, controller)) _controller = null;
+        await _disposeController(controller);
+        return;
+      }
+
+      await controller.setFlashMode(widget.flashMode);
+      if (!_isCurrent(controller)) {
+        if (identical(_controller, controller)) _controller = null;
+        await _disposeController(controller);
+        return;
+      }
+
+      final imageStream = widget.imageStream;
+      if (imageStream != null) await controller.startImageStream(imageStream);
+
+      if (!_isCurrent(controller)) {
+        if (identical(_controller, controller)) _controller = null;
+        await _disposeController(controller);
+        return;
+      }
+
+      widget.onCameraStart?.call();
+      _didStart = true;
+      if (_isCurrent(controller)) setState(() {});
+    } catch (e, stackTrace) {
+      if (identical(_controller, controller)) _controller = null;
+      if (controller != null) await _disposeController(controller);
+      if (mounted && _wantCamera) {
+        devLog('init camera error', error: e, stackTrace: stackTrace);
+      }
+    }
+  }
+
+  void _scheduleCameraSync() {
+    final previousTask = _cameraTask;
+    _cameraTask = () async {
+      try {
+        await previousTask;
+        await _syncCamera();
+      } catch (e, stackTrace) {
+        devLog('camera lifecycle error', error: e, stackTrace: stackTrace);
+      }
+    }();
+  }
+
+  Future<void> _syncCamera() async {
+    if (mounted && _wantCamera) {
+      if (_controller == null) await _initCamera();
+    } else {
+      await _stopLiveFeed(rebuild: mounted);
     }
   }
 
   Future<XFile?> takePicture() async {
     final controller = _controller;
-    if (controller != null && controller.value.isInitialized) {
-      if (controller.value.isTakingPicture) {
-        return null;
-      }
+    if (_wantCamera && controller != null && controller.value.isInitialized) {
+      if (controller.value.isTakingPicture) return null;
       return controller.takePicture();
     }
     return null;
@@ -83,81 +128,92 @@ class CameraViewState extends State<CameraView> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(CameraView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _onCameraStop = widget.onCameraStop;
     final controller = _controller;
-    if (controller != null && controller.value.isInitialized) {
-      if (oldWidget.flashMode != widget.flashMode) {
-        controller.setFlashMode(oldWidget.flashMode);
-      }
+    if (_wantCamera &&
+        controller != null &&
+        controller.value.isInitialized &&
+        oldWidget.flashMode != widget.flashMode) {
+      unawaited(
+        controller.setFlashMode(widget.flashMode).catchError((e, stackTrace) {
+          devLog('set flash mode error', error: e, stackTrace: stackTrace);
+        }),
+      );
     }
   }
 
   @override
   void initState() {
     super.initState();
-    WakelockPlus.enable();
+    final lifecycleState = WidgetsBinding.instance.lifecycleState;
+    _wantCamera =
+        lifecycleState == null || lifecycleState == AppLifecycleState.resumed;
+    _onCameraStop = widget.onCameraStop;
+    unawaited(WakelockPlus.enable());
     WidgetsBinding.instance.addObserver(this);
-    _initCamera();
+    _scheduleCameraSync();
   }
 
   @override
   void dispose() {
-    _stopLiveFeed(rebuild: false).then((_) {
-      widget.onCameraStop?.call();
-      WakelockPlus.disable();
-    });
+    _wantCamera = false;
+    _scheduleCameraSync();
+    unawaited(WakelockPlus.disable());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
+  Future<void> _disposeController(CameraController controller) async {
+    try {
+      if (controller.value.isStreamingImages) {
+        await controller.stopImageStream();
+      }
+    } catch (e, stackTrace) {
+      devLog('stop camera stream error', error: e, stackTrace: stackTrace);
+    }
+    try {
+      await controller.dispose();
+    } catch (e, stackTrace) {
+      devLog('dispose camera error', error: e, stackTrace: stackTrace);
+    }
+  }
+
   Future<void> _stopLiveFeed({bool rebuild = true}) async {
     final controller = _controller;
-    if (controller == null) return;
-
     _controller = null;
-    if (rebuild && mounted) {
-      setState(() {}); // 先移除 CameraPreview
-    }
+    final didStart = _didStart;
+    _didStart = false;
 
-    if (widget.imageStream != null) {
-      await controller.stopImageStream();
-    }
-    await controller.dispose();
+    if (rebuild && mounted) setState(() {});
+    if (controller != null) await _disposeController(controller);
+    if (didStart) _onCameraStop?.call();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    final CameraController? controller = _controller;
-    if (state == AppLifecycleState.paused) {
-      if (controller != null && controller.value.isInitialized) {
-        _stopLiveFeed().then((_) {
-          widget.onCameraStop?.call();
-        });
-      }
-    } else if (state == AppLifecycleState.resumed) {
-      if (_controller == null) {
-        _initCamera();
-      }
-    }
+    final wantCamera = state == AppLifecycleState.resumed;
+    if (_wantCamera == wantCamera) return;
+    _wantCamera = wantCamera;
+    _scheduleCameraSync();
   }
 
   @override
   Widget build(BuildContext context) {
-    final CameraController? controller = _controller;
+    final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
       return Container();
-    } else {
-      return ClipRRect(
-        borderRadius: widget.clipBorderRadius,
-        child: FittedBox(
-          fit: BoxFit.cover,
-          child: SizedBox(
-            width: controller.value.previewSize?.height,
-            height: controller.value.previewSize?.width,
-            child: CameraPreview(controller),
-          ),
-        ),
-      );
     }
+    return ClipRRect(
+      borderRadius: widget.clipBorderRadius,
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: controller.value.previewSize?.height,
+          height: controller.value.previewSize?.width,
+          child: CameraPreview(controller),
+        ),
+      ),
+    );
   }
 }
