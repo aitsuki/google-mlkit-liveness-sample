@@ -1,137 +1,256 @@
-import { useEffect, useRef, useState } from 'react';
-import { AppState, AppStateStatus, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  AppState,
+  type AppStateStatus,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import {FileSystem} from 'react-native-file-access';
+import {useIsFocused} from '@react-navigation/native';
+import {SafeAreaView} from 'react-native-safe-area-context';
 import {
   Camera,
-  runAsync,
+  type CameraDevice,
+  type CameraPhotoOutput,
   useCameraDevice,
-  useFrameProcessor,
+  usePhotoOutput,
 } from 'react-native-vision-camera';
 import {
-  Face,
-  useFaceDetector,
+  type Face,
+  useFaceDetectorOutput,
 } from 'react-native-vision-camera-face-detector';
-import { Worklets } from 'react-native-worklets-core';
-import { FaceAnalyzer, FaceError, LivenessStep } from './FaceAnalyzer';
-import { RootScreenProps } from './App';
+import type {RootScreenProps} from './navigation';
+import {
+  type FaceError,
+  type FaceSample,
+  LivenessController,
+  type LivenessStep,
+} from './liveness/LivenessController';
 
-const guideTextMap: Record<LivenessStep, string> = {
-  front: 'Please make sure your face is in the center of the screen',
+const guideText: Record<LivenessStep, string> = {
+  front: 'Keep your face centered and look straight ahead',
   smile: 'Please smile',
-  side: 'Please slowly turn your head left or right',
+  side: 'Slowly turn your head left or right',
   done: '',
 };
 
-const errorTextMap: Record<FaceError, string> = {
-  not_center: 'Please move your face to the center of the screen',
-  too_far: 'Please move closer',
-  too_close: 'Please move farther away',
-  multiple_faces:
-    'Multiple faces detected, please ensure only one person is in view',
+const errorText: Record<FaceError, string> = {
+  not_center: 'Move your face to the center',
+  too_far: 'Move closer',
+  too_close: 'Move farther away',
+  multiple_faces: 'Make sure only one person is visible',
+  no_face: '',
+  capture_failed: 'Photo capture failed. Please try again',
+  detector_failed: 'Face detection failed. Please try again',
   none: '',
 };
 
-export function LivenessScreen({ navigation }: RootScreenProps<'Liveness'>) {
-  const cameraRef = useRef<Camera>(null);
+type CaptureStep = Exclude<LivenessStep, 'done'>;
+type CapturedPhotos = Partial<Record<CaptureStep, string>>;
+
+async function removePhotos(paths: string[]): Promise<void> {
+  await Promise.all(
+    paths.map(path => FileSystem.unlink(path).catch(() => undefined)),
+  );
+}
+
+interface FaceCameraProps {
+  device: CameraDevice;
+  isActive: boolean;
+  photoOutput: CameraPhotoOutput;
+  onFacesDetected: (faces: Face[]) => void;
+  onError: (error: Error) => void;
+}
+
+const FaceCamera = memo(function FaceCameraComponent({
+  device,
+  isActive,
+  photoOutput,
+  onFacesDetected,
+  onError,
+}: FaceCameraProps) {
+  const detectorOutput = useFaceDetectorOutput({
+    cameraFacing: 'front',
+    outputResolution: 'preview',
+    performanceMode: 'fast',
+    runClassifications: true,
+    runContours: false,
+    runLandmarks: false,
+    minFaceSize: 0.15,
+    trackingEnabled: false,
+    onFacesDetected,
+    onError,
+  });
+  const outputs = useMemo(
+    () => [detectorOutput, photoOutput],
+    [detectorOutput, photoOutput],
+  );
+
+  return (
+    <Camera
+      style={StyleSheet.absoluteFill}
+      device={device}
+      isActive={isActive}
+      outputs={outputs}
+      onError={onError}
+    />
+  );
+});
+
+export function LivenessScreen({navigation}: RootScreenProps<'Liveness'>) {
   const device = useCameraDevice('front');
-
-  const [guideText, setGuideText] = useState('');
-  const [errorText, setErrorText] = useState('');
-  const [done, setDone] = useState(false);
-
+  const photoOutput = usePhotoOutput({qualityPrioritization: 'speed'});
+  const isFocused = useIsFocused();
   const [appState, setAppState] = useState(AppState.currentState);
-  useEffect(() => {
-    const handleAppState = (nextAppState: AppStateStatus) => {
-      setAppState(nextAppState);
-    };
+  const [status, setStatus] = useState<{
+    step: LivenessStep;
+    error: FaceError;
+  }>({step: 'front', error: 'none'});
 
-    const subscription = AppState.addEventListener('change', handleAppState);
+  const controller = useRef(new LivenessController());
+  const capturedPhotos = useRef<CapturedPhotos>({});
+  const mounted = useRef(true);
+  const transferredPhotos = useRef(false);
+
+  useEffect(() => {
+    const onAppStateChange = (nextState: AppStateStatus) =>
+      setAppState(nextState);
+    const subscription = AppState.addEventListener('change', onAppStateChange);
     return () => subscription.remove();
   }, []);
 
-  const faceAnalyzer = useRef<FaceAnalyzer | null>(null);
-  if (!faceAnalyzer.current) {
-    faceAnalyzer.current = new FaceAnalyzer(
-      cameraRef,
-      (step, error) => {
-        setGuideText(guideTextMap[step]);
-        setErrorText(errorTextMap[error]);
-        console.log('step', step, 'error', error);
-      },
-      files => {
-        setDone(true);
-        console.log('Liveness done, photos taken:', files);
-        navigation.popTo('Home', { photoFiles: files });
-      },
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+      if (!transferredPhotos.current) {
+        removePhotos(Object.values(capturedPhotos.current)).catch(
+          () => undefined,
+        );
+      }
+    };
+  }, []);
+
+  const updateStatus = useCallback((step: LivenessStep, error: FaceError) => {
+    if (!mounted.current) {
+      return;
+    }
+    setStatus(current =>
+      current.step === step && current.error === error
+        ? current
+        : {step, error},
     );
-  }
+  }, []);
 
-  const { detectFaces } = useFaceDetector(
-    faceAnalyzer.current.faceDetectionOptions,
-  );
-
-  const handleDetectedFaces = Worklets.createRunOnJS(
-    (faces: Face[], frameW: number, frameH: number) => {
-      faceAnalyzer.current?.analyze(faces, frameW, frameH);
+  const handleDetectorError = useCallback(
+    (error: Error) => {
+      console.warn('Face detector error', error);
+      updateStatus(controller.current.getStep(), 'detector_failed');
     },
+    [updateStatus],
   );
 
-  const frameProcessor = useFrameProcessor(
-    frame => {
-      'worklet';
-      runAsync(frame, () => {
-        'worklet';
-        const reverseWH =
-          frame.orientation === 'landscape-left' ||
-          frame.orientation === 'landscape-right';
-        const frameW = reverseWH ? frame.height : frame.width;
-        const frameH = reverseWH ? frame.width : frame.height;
-        const faces = detectFaces(frame);
-        handleDetectedFaces(faces, frameW, frameH);
-      });
+  const handleFacesDetected = useCallback(
+    async (faces: Face[]) => {
+      const samples: FaceSample[] = faces.map(face => ({
+        bounds: face.bounds,
+        frameWidth: face.frameWidth,
+        frameHeight: face.frameHeight,
+        yawAngle: face.yawAngle,
+        pitchAngle: face.pitchAngle,
+        smilingProbability: face.smilingProbability,
+      }));
+      const result = controller.current.process(samples, Date.now());
+      updateStatus(result.step, result.error);
+
+      if (result.didReset) {
+        const obsoletePaths = Object.values(capturedPhotos.current);
+        capturedPhotos.current = {};
+        removePhotos(obsoletePaths).catch(() => undefined);
+      }
+      if (!result.captureStep) {
+        return;
+      }
+
+      const captureStep = result.captureStep;
+      try {
+        const photo = await photoOutput.capturePhotoToFile(
+          {enableShutterSound: false},
+          {},
+        );
+        if (!mounted.current) {
+          await removePhotos([photo.filePath]);
+          return;
+        }
+
+        const oldPath = capturedPhotos.current[captureStep];
+        capturedPhotos.current[captureStep] = photo.filePath;
+        if (oldPath) {
+          removePhotos([oldPath]).catch(() => undefined);
+        }
+
+        const nextStep = controller.current.captureSucceeded(captureStep);
+        updateStatus(nextStep, 'none');
+        if (nextStep === 'done') {
+          const paths = [
+            capturedPhotos.current.front,
+            capturedPhotos.current.smile,
+            capturedPhotos.current.side,
+          ].filter((path): path is string => Boolean(path));
+          if (paths.length === 3) {
+            transferredPhotos.current = true;
+            navigation.popTo('Home', {photoPaths: paths});
+          }
+        }
+      } catch (error) {
+        console.warn('Photo capture failed', error);
+        controller.current.captureFailed();
+        updateStatus(controller.current.getStep(), 'capture_failed');
+      }
     },
-    [handleDetectedFaces],
+    [navigation, photoOutput, updateStatus],
   );
+
+  const isActive = isFocused && appState === 'active';
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.textContainer}>
-        <Text>{guideText}</Text>
-        <Text style={styles.errorText}>{errorText}</Text>
+        <Text style={styles.guide}>{guideText[status.step]}</Text>
+        <Text style={styles.error}>{errorText[status.error]}</Text>
       </View>
-      {device && (
-        <View style={styles.cameraContainer}>
-          <Camera
-            style={StyleSheet.absoluteFill}
-            ref={cameraRef}
+      <View style={styles.cameraContainer}>
+        {device ? (
+          <FaceCamera
             device={device}
-            isActive={!done && appState === 'active'}
-            frameProcessor={frameProcessor}
+            isActive={isActive}
+            photoOutput={photoOutput}
+            onFacesDetected={handleFacesDetected}
+            onError={handleDetectorError}
           />
-        </View>
-      )}
+        ) : (
+          <Text style={styles.error}>Front camera is unavailable</Text>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: {flex: 1, alignItems: 'center'},
   textContainer: {
-    height: 100,
+    height: 120,
+    paddingHorizontal: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  errorText: {
-    color: '#F00',
-    fontWeight: 'semibold',
-  },
+  guide: {textAlign: 'center'},
+  error: {color: '#c62828', textAlign: 'center', fontWeight: '600'},
   cameraContainer: {
-    height: 220,
-    width: 220,
-    alignSelf: 'center',
-    borderRadius: 110,
+    width: '80%',
+    aspectRatio: 1,
+    borderRadius: 999,
     overflow: 'hidden',
+    justifyContent: 'center',
   },
 });
